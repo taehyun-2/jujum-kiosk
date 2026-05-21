@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>주점 QR 주문</title>
+  <link rel="stylesheet" href="/style.css"/>
+</head>
+<body>
+<header>
+  <h1 id="title">주점 주문</h1>
+  <p>메뉴 선택 후 장바구니에서 결제해주세요.</p>
+</header>
+
+<main>
+  <section class="card summary-card">
+    <h2>내 주문 누적금액</h2>
+    <p class="big-total"><span id="personalTotal">0</span>원</p>
+    <p class="small">이 화면을 연 손님 휴대폰 기준으로만 표시됩니다.</p>
+    <div id="personalHistory"></div>
+  </section>
+
+  <section class="card">
+    <h2>메뉴</h2>
+    <div id="menuList"></div>
+  </section>
+
+  <section class="card">
+    <h2>이번 추가 주문 장바구니</h2>
+    <div id="cartList"></div>
+    <p class="total">이번 주문 금액: <span id="total">0</span>원</p>
+    <button class="primary" onclick="goPayment()">결제하기</button>
+  </section>
+
+  <section class="card" id="paymentBox" style="display:none;">
+    <h2>계좌이체 안내</h2>
+    <div class="notice">
+      <p><b>이번 주문 금액:</b> <span id="payTotal">0</span>원</p>
+      <p><b>입금 계좌:</b> <span id="bankInfo"></span></p>
+      <p><b>입금자명:</b> <span id="depositPreview"></span></p>
+      <p class="small">주문 완료 후 정확한 입금자명이 표시됩니다.</p>
+    </div>
+    <button class="primary" onclick="submitOrder()">입금 완료했습니다 / 주문 완료</button>
+  </section>
+
+  <section class="card" id="completeBox" style="display:none;">
+    <h2>주문 완료!</h2>
+    <p><b>새 주문번호:</b> <span id="doneOrderCode"></span></p>
+    <p><b>테이블:</b> <span id="doneTable"></span>번</p>
+    <p><b>입금자명:</b> <span id="doneDeposit"></span></p>
+    <p><b>이번 주문 금액:</b> <span id="doneTotal"></span>원</p>
+    <p class="notice">맨 위에서 내 주문 누적금액을 확인할 수 있습니다.</p>
+    <button class="primary" onclick="newOrder()">추가 주문하기</button>
+  </section>
+</main>
+
+<script>
+const tableNo = Number(location.pathname.split("/").pop());
+let menus = [];
+let cart = {};
+let settings = {};
+
+function getSessionId() {
+  const key = `jujum_session_table_${tableNo}`;
+  let id = localStorage.getItem(key);
+  if (!id) {
+    id = `S${Date.now()}${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem(key, id);
+  }
+  return id;
+}
+
+const sessionId = getSessionId();
+
+document.getElementById("title").textContent = `${tableNo}번 테이블 주문`;
+
+async function load() {
+  menus = await fetch("/api/menus").then(r => r.json());
+  settings = await fetch("/api/settings").then(r => r.json());
+  document.getElementById("bankInfo").textContent = `${settings.bankName} ${settings.accountNumber} ${settings.accountHolder}`;
+  renderMenus();
+  renderCart();
+  loadPersonalHistory();
+}
+
+async function loadPersonalHistory() {
+  const data = await fetch(`/api/session/${sessionId}/orders`).then(r => r.json());
+  if (!data.ok) return;
+
+  document.getElementById("personalTotal").textContent = Number(data.total).toLocaleString();
+
+  const box = document.getElementById("personalHistory");
+  if (data.orders.length === 0) {
+    box.innerHTML = `<div class="empty">아직 내 주문 내역이 없습니다.</div>`;
+    return;
+  }
+
+  box.innerHTML = data.orders.map(order => `
+    <div class="personal-history-item">
+      <p><b>주문 ${order.orderCode}</b> / ${Number(order.total).toLocaleString()}원 / ${order.status}</p>
+      <ul>
+        ${order.items.map(item => `<li>${item.name} x ${item.qty}</li>`).join("")}
+      </ul>
+    </div>
+  `).join("");
+}
+
+function renderMenus() {
+  const box = document.getElementById("menuList");
+  if (menus.length === 0) {
+    box.innerHTML = `<div class="empty">아직 메뉴가 등록되지 않았습니다.</div>`;
+    return;
+  }
+
+  const categories = [...new Set(menus.map(m => m.category || "기타"))];
+  box.innerHTML = categories.map(category => {
+    const items = menus.filter(m => (m.category || "기타") === category);
+    return `
+      <div class="category-block">
+        <h2 class="category-title">${category}</h2>
+        <div class="menu-grid">
+          ${items.map((m) => {
+            const globalIndex = menus.indexOf(m);
+            return `
+              <div class="menu-item card inner-card">
+                <h3>${m.name}</h3>
+                ${m.description ? `<p class="desc">[${m.description}]</p>` : ""}
+                <p><b>${Number(m.price).toLocaleString()}원</b></p>
+                <button onclick="addCart(${globalIndex})">담기</button>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function addCart(i) {
+  const key = menus[i].name;
+  cart[key] = cart[key] || { ...menus[i], qty: 0 };
+  cart[key].qty++;
+  renderCart();
+}
+
+function removeCart(name) {
+  if (!cart[name]) return;
+  cart[name].qty--;
+  if (cart[name].qty <= 0) delete cart[name];
+  renderCart();
+}
+
+function getItems() {
+  return Object.values(cart);
+}
+
+function getTotal() {
+  return getItems().reduce((sum, item) => sum + Number(item.price) * item.qty, 0);
+}
+
+function renderCart() {
+  const items = getItems();
+  const box = document.getElementById("cartList");
+  if (items.length === 0) {
+    box.innerHTML = `<div class="empty">장바구니가 비어 있습니다.</div>`;
+  } else {
+    box.innerHTML = items.map(item => `
+      <div class="item-row">
+        <div>${item.name} x ${item.qty}</div>
+        <div>
+          ${(Number(item.price) * item.qty).toLocaleString()}원
+          <button class="secondary" onclick="removeCart('${item.name}')">-</button>
+        </div>
+      </div>
+    `).join("");
+  }
+  document.getElementById("total").textContent = getTotal().toLocaleString();
+  document.getElementById("payTotal").textContent = getTotal().toLocaleString();
+  document.getElementById("depositPreview").textContent = `T${String(tableNo).padStart(2, "0")}-주문완료후생성`;
+}
+
+function goPayment() {
+  if (getItems().length === 0) {
+    alert("장바구니가 비어 있습니다.");
+    return;
+  }
+  document.getElementById("paymentBox").style.display = "block";
+  document.getElementById("paymentBox").scrollIntoView({ behavior: "smooth" });
+}
+
+async function submitOrder() {
+  if (getItems().length === 0) return;
+
+  const res = await fetch("/api/orders", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      tableNo,
+      sessionId,
+      items: getItems(),
+      total: getTotal()
+    })
+  });
+
+  const data = await res.json();
+  if (!data.ok) {
+    alert(data.error || "주문 실패");
+    return;
+  }
+
+  document.getElementById("doneOrderCode").textContent = data.order.orderCode;
+  document.getElementById("doneTable").textContent = data.order.tableNo;
+  document.getElementById("doneDeposit").textContent = data.order.depositName;
+  document.getElementById("doneTotal").textContent = Number(data.order.total).toLocaleString();
+
+  document.getElementById("paymentBox").style.display = "none";
+  document.getElementById("completeBox").style.display = "block";
+  document.getElementById("completeBox").scrollIntoView({ behavior: "smooth" });
+
+  cart = {};
+  renderCart();
+  await loadPersonalHistory();
+}
+
+function newOrder() {
+  document.getElementById("completeBox").style.display = "none";
+  document.getElementById("paymentBox").style.display = "none";
+  loadPersonalHistory();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+load();
+setInterval(loadPersonalHistory, 5000);
+</script>
+</body>
+</html>

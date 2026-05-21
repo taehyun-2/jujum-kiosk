@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>주점 관리자</title>
+  <link rel="stylesheet" href="/style.css"/>
+</head>
+<body>
+<header>
+  <h1>관리자 화면</h1>
+  <p>주문 확인, 제작 상태 변경, 내보냄 완료 정산을 한 화면에서 관리합니다.</p>
+</header>
+
+<main>
+  <section class="card">
+    <div class="admin-top">
+      <button class="primary" onclick="loadOrders()">새로고침</button>
+      <button class="secondary" onclick="toggleMenuEditor()">메뉴/계좌 설정</button>
+      <span class="small">상태: 입금확인 필요 → 입금확인 → 제작중 → 내보냄/완료</span>
+    </div>
+  </section>
+
+  <section class="card" id="menuEditor" style="display:none;">
+    <h2>메뉴 등록</h2>
+    <p class="small">형식: 메뉴명,가격,카테고리,설명</p>
+    <textarea id="menuText"></textarea>
+    <h2>계좌 설정</h2>
+    <label>은행명</label>
+    <input id="bankName"/>
+    <label>계좌번호</label>
+    <input id="accountNumber"/>
+    <label>예금주</label>
+    <input id="accountHolder"/>
+    <button class="primary" onclick="saveSettings()">저장</button>
+  </section>
+
+  <section class="card summary-card">
+    <h2>내보냄/완료 정산</h2>
+    <p class="total">완료 합계: <span id="completedTotal">0</span>원</p>
+    <p class="small">내보냄/완료로 바꾼 주문만 합산됩니다. 취소 주문은 합산되지 않습니다.</p>
+  </section>
+
+  <section class="admin-columns">
+    <div>
+      <h2 class="section-title">진행중 주문</h2>
+      <div id="activeOrders"></div>
+    </div>
+
+    <div>
+      <h2 class="section-title">내보냄/완료</h2>
+      <div id="completedOrders"></div>
+
+      <h2 class="section-title">취소됨</h2>
+      <div id="canceledOrders"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+let previousOrderCount = 0;
+
+async function loadSettings() {
+  const menus = await fetch("/api/menus").then(r => r.json());
+  const settings = await fetch("/api/settings").then(r => r.json());
+
+  document.getElementById("menuText").value = menus.map(m =>
+    `${m.name},${m.price},${m.category || ""},${m.description || ""}`
+  ).join("\n");
+
+  document.getElementById("bankName").value = settings.bankName || "";
+  document.getElementById("accountNumber").value = settings.accountNumber || "";
+  document.getElementById("accountHolder").value = settings.accountHolder || "";
+}
+
+function toggleMenuEditor() {
+  const box = document.getElementById("menuEditor");
+  box.style.display = box.style.display === "none" ? "block" : "none";
+}
+
+async function saveSettings() {
+  const lines = document.getElementById("menuText").value.split("\n").map(x => x.trim()).filter(Boolean);
+  const menus = lines.map(line => {
+    const parts = line.split(",").map(x => x.trim());
+    const [name, price, category, ...descParts] = parts;
+    return {
+      name,
+      price: Number(price),
+      category: category || "",
+      description: descParts.join(", ") || ""
+    };
+  }).filter(m => m.name && Number.isFinite(m.price));
+
+  await fetch("/api/menus", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(menus)
+  });
+
+  await fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      bankName: document.getElementById("bankName").value,
+      accountNumber: document.getElementById("accountNumber").value,
+      accountHolder: document.getElementById("accountHolder").value
+    })
+  });
+
+  alert("저장되었습니다.");
+  loadSettings();
+}
+
+function statusClass(status) {
+  if (status === "입금확인 필요") return "status-waiting";
+  if (status === "입금확인") return "status-paid";
+  if (status === "제작중") return "status-making";
+  if (status === "내보냄/완료") return "status-completed";
+  if (status === "취소") return "status-canceled";
+  return "";
+}
+
+function renderOrder(order) {
+  if (order.status === "취소") {
+    return `
+      <div class="card order canceled-order">
+        <h2>주문 ${order.orderCode} / ${order.tableNo}번 테이블</h2>
+        <p><span class="status ${statusClass(order.status)}">취소됨</span></p>
+        <p class="compact-info"><b>총액:</b> ${Number(order.total).toLocaleString()}원</p>
+        <p class="compact-info"><b>입금자명:</b> ${order.depositName}</p>
+        <div class="order-actions">
+          <button class="status-btn" onclick="setStatus(${order.id}, '입금확인 필요')">진행중으로 복구</button>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="card order ${order.status === "내보냄/완료" ? "completed-order" : ""}">
+      <h2>주문 ${order.orderCode} / ${order.tableNo}번 테이블</h2>
+      <p><span class="status ${statusClass(order.status)}">${order.status}</span></p>
+      <p><b>입금자명:</b> ${order.depositName}</p>
+      <p><b>총액:</b> ${Number(order.total).toLocaleString()}원</p>
+      <p><b>메뉴:</b></p>
+      <ul>
+        ${order.items.map(item => `<li>${item.name} x ${item.qty} = ${(Number(item.price) * item.qty).toLocaleString()}원</li>`).join("")}
+      </ul>
+      <div class="order-actions">
+        <button class="status-btn" onclick="setStatus(${order.id}, '입금확인')">입금확인</button>
+        <button class="status-btn" onclick="setStatus(${order.id}, '제작중')">제작중</button>
+        <button class="status-btn" onclick="setStatus(${order.id}, '내보냄/완료')">내보냄/완료</button>
+        <button class="danger" onclick="setStatus(${order.id}, '취소')">취소</button>
+      </div>
+      <p class="small">${new Date(order.createdAt).toLocaleString()}</p>
+    </div>
+  `;
+}
+
+async function loadOrders() {
+  const orders = await fetch("/api/orders").then(r => r.json());
+
+  if (orders.length > previousOrderCount && previousOrderCount !== 0) {
+    alert("새 주문이 들어왔습니다.");
+  }
+  previousOrderCount = orders.length;
+
+  const completed = orders.filter(o => o.status === "내보냄/완료");
+  const canceled = orders.filter(o => o.status === "취소");
+  const active = orders.filter(o => o.status !== "내보냄/완료" && o.status !== "취소");
+
+  const completedTotal = completed.reduce((sum, order) => sum + Number(order.total || 0), 0);
+  document.getElementById("completedTotal").textContent = completedTotal.toLocaleString();
+
+  document.getElementById("activeOrders").innerHTML = active.length
+    ? active.map(renderOrder).join("")
+    : `<div class="card empty">진행중 주문이 없습니다.</div>`;
+
+  document.getElementById("completedOrders").innerHTML = completed.length
+    ? completed.map(renderOrder).join("")
+    : `<div class="card empty">내보냄/완료 주문이 없습니다.</div>`;
+
+  document.getElementById("canceledOrders").innerHTML = canceled.length
+    ? canceled.map(renderOrder).join("")
+    : `<div class="card empty">취소된 주문이 없습니다.</div>`;
+}
+
+async function setStatus(id, status) {
+  await fetch(`/api/orders/${id}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status })
+  });
+  loadOrders();
+}
+
+loadSettings();
+loadOrders();
+setInterval(loadOrders, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+[
+  {
+    "name": "훌라훌라 치킨 플레이트",
+    "description": "하와이안 데리야끼 닭꼬치",
+    "price": 19000,
+    "category": "메인"
+  },
+  {
+    "name": "지중해 해물파전",
+    "description": "해물파전",
+    "price": 12000,
+    "category": "메인"
+  },
+  {
+    "name": "야이 치불면아!",
+    "description": "불닭볶음면 + 콘마요 + 셀프주먹밥",
+    "price": 12000,
+    "category": "메인"
+  },
+  {
+    "name": "박영일과 알로하 춤을",
+    "description": "포케 나쵸",
+    "price": 9000,
+    "category": "사이드"
+  },
+  {
+    "name": "오뎅탕 속 니모를 찾아서",
+    "description": "오뎅탕",
+    "price": 8000,
+    "category": "사이드"
+  },
+  {
+    "name": "이거 누가 시켰냐",
+    "description": "파인애플 샤베트",
+    "price": 8000,
+    "category": "사이드"
+  },
+  {
+    "name": "콜라",
+    "description": "",
+    "price": 2000,
+    "category": "음료"
+  },
+  {
+    "name": "사이다",
+    "description": "",
+    "price": 2000,
+    "category": "음료"
+  },
+  {
+    "name": "코코팜",
+    "description": "",
+    "price": 2000,
+    "category": "음료"
+  }
+]
