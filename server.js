@@ -284,6 +284,15 @@ async function updateOrderStatus(id, status) {
   return result.rows[0] ? toOrder(result.rows[0]) : null;
 }
 
+async function resetOrders() {
+  if (!hasDatabase) {
+    writeJson(ORDERS_FILE, []);
+    return;
+  }
+
+  await pool.query("TRUNCATE TABLE orders RESTART IDENTITY");
+}
+
 function asyncRoute(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
@@ -354,6 +363,11 @@ app.patch("/api/orders/:id/status", asyncRoute(async (req, res) => {
   const order = await updateOrderStatus(id, status);
   if (!order) return res.status(404).json({ error: "주문을 찾을 수 없습니다." });
   res.json({ ok: true, order });
+}));
+
+app.delete("/api/orders/reset", asyncRoute(async (req, res) => {
+  await resetOrders();
+  res.json({ ok: true });
 }));
 
 app.use((err, req, res, next) => {

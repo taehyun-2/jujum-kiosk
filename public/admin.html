@@ -17,6 +17,7 @@
     <div class="admin-top">
       <button class="primary" onclick="loadOrders()">새로고침</button>
       <button class="secondary" onclick="toggleMenuEditor()">메뉴/계좌 설정</button>
+      <button class="danger" onclick="resetAllOrders()">전체 주문 초기화</button>
       <span class="small">상태: 입금확인 필요 → 입금확인 → 제작중 → 내보냄/완료</span>
     </div>
   </section>
@@ -196,6 +197,27 @@ async function setStatus(id, status) {
 loadSettings();
 loadOrders();
 setInterval(loadOrders, 5000);
+
+async function resetAllOrders() {
+  const ok = confirm("진짜 초기화 하시겠습니까? 모든 주문, 취소, 완료 내역이 삭제되고 주문번호가 001부터 다시 시작됩니다.");
+
+  if (!ok) return;
+
+  const res = await fetch("/api/orders/reset", {
+    method: "DELETE"
+  });
+
+  const data = await res.json();
+
+  if (!data.ok) {
+    alert(data.error || "초기화 실패");
+    return;
+  }
+
+  previousOrderCount = 0;
+  alert("전체 주문이 초기화되었습니다.");
+  loadOrders();
+}
 </script>
 </body>
 </html>
